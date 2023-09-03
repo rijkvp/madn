@@ -17,8 +17,20 @@
           src = self;
           cargoLock.lockFile = self + "/Cargo.lock";
         };
-        devShells.default = mkShell {
-          nativeBuildInputs = with pkgs; [ rustc cargo clippy cargo-outdated ];
+        devShells.default = mkShell rec {
+          nativeBuildInputs = [ rustc cargo cargo-flamegraph cargo-dist pkg-config cmake fontconfig ];
+          buildInputs = [
+            libGL
+            libxkbcommon
+            wayland
+            xorg.libX11
+            xorg.libXcursor
+            xorg.libXi
+            xorg.libXrandr
+            mesa
+            vulkan-loader
+          ];
+          LD_LIBRARY_PATH = lib.makeLibraryPath buildInputs;
         };
       }
     );
