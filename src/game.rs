@@ -1,10 +1,11 @@
 use rand::Rng;
 use std::io::{self, Read};
 
-pub const BOARD_SIZE: usize = 40;
-pub const PLAYER_COUNT: usize = 4;
-pub const PEG_COUNT: usize = 4;
-pub const PLAYER_NAMES: &[&str] = &["Blue", "Yellow", "Green", "Red"];
+const BOARD_SIZE: usize = 40;
+const PLAYER_COUNT: usize = 4;
+const SIDE_SIZE: usize = BOARD_SIZE / PLAYER_COUNT;
+const PEG_COUNT: usize = 4;
+const PLAYER_NAMES: &[&str] = &["Blue", "Yellow", "Green", "Red"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Peg {
@@ -14,14 +15,11 @@ pub enum Peg {
 }
 
 impl Peg {
-    fn is_unused(&self) -> bool {
-        match self {
-            Self::Out => true,
-            _ => false,
-        }
+    fn is_out(&self) -> bool {
+        *self == Self::Out
     }
 
-    fn is_onboard(&self) -> bool {
+    fn is_in(&self) -> bool {
         match self {
             Self::In(_) => true,
             _ => false,
@@ -40,19 +38,15 @@ impl Peg {
 pub struct Player(usize);
 
 impl Player {
-    fn index(&self) -> usize {
+    pub fn index(&self) -> usize {
         self.0 as usize
-    }
-
-    fn start_pos(&self) -> usize {
-        self.index() * 10
     }
 
     fn num(&self) -> u8 {
         (self.0 + 1) as u8
     }
 
-    fn name(&self) -> &str {
+    pub fn name(&self) -> &str {
         PLAYER_NAMES[self.index()]
     }
 
@@ -63,6 +57,7 @@ impl Player {
 
 pub struct Board {
     board: [u8; BOARD_SIZE],
+    home: [[bool; PEG_COUNT]; PLAYER_COUNT],
     pegs: [[Peg; PEG_COUNT]; PLAYER_COUNT],
 }
 
@@ -70,6 +65,7 @@ impl Default for Board {
     fn default() -> Self {
         Self {
             board: [0u8; BOARD_SIZE],
+            home: [[false; PEG_COUNT]; PLAYER_COUNT],
             pegs: [[Peg::Out; PEG_COUNT]; PLAYER_COUNT],
         }
     }
@@ -81,19 +77,25 @@ impl Board {
         let Peg::In(peg_pos) = self.pegs[player.index()][peg] else {
             panic!("cannot move peg that is not on the board");
         };
-        self.board[peg_pos] = 0;
         let dest = (peg_pos + moves) % BOARD_SIZE;
-
-        self.place_peg(dest, player, peg);
-
-        println!("MOVE: {} peg {}, {} places", player.name(), peg, moves);
-        // TODO: move in home
+        let home_pos = (player.index() * SIDE_SIZE + (BOARD_SIZE - 1)) % BOARD_SIZE;
+        let pos_in_round = (BOARD_SIZE + dest - home_pos) % BOARD_SIZE;
+        if pos_in_round > 30 {
+            // Move in HOME
+            println!("MOVE HOME: {} peg {}, {} places", player.name(), peg, moves);
+        } else {
+            // Normal move
+            println!("MOVE: {} peg {}, {} places", player.name(), peg, moves);
+            self.board[peg_pos] = 0; // Clear the previous position
+            self.place_peg(dest, player, peg);
+        }
     }
 
     /// Insert a new peg on the board
     pub fn insert_peg(&mut self, player: Player, peg: usize) {
         println!("INSERT: {}", player.name());
-        self.place_peg(player.start_pos(), player, peg);
+        let start_pos = player.index() * SIDE_SIZE;
+        self.place_peg(start_pos, player, peg);
     }
 
     /// Place a peg on the board, potentially slaying another peg
@@ -114,6 +116,10 @@ impl Board {
 
     pub fn cells(&self) -> std::slice::Iter<u8> {
         self.board.iter()
+    }
+
+    pub fn home_cells(&self, player: Player) -> std::slice::Iter<bool> {
+        self.home[player.index()].iter()
     }
 
     pub fn player_pegs(&self, player: Player) -> std::slice::Iter<Peg> {
@@ -166,6 +172,10 @@ impl Game {
         self.current_player
     }
 
+    pub fn players(&self) -> impl Iterator<Item = Player> {
+        (0..PLAYER_COUNT).into_iter().map(|i| Player(i)).into_iter()
+    }
+
     pub fn run(&mut self) {
         let mut input_buf = [0u8; 1];
         loop {
@@ -188,17 +198,17 @@ impl Game {
 
         let mut inserted = None::<usize>;
         loop {
-            let pegs_unused = self
+            let pegs_out = self
                 .board
                 .player_pegs(player)
                 .enumerate()
-                .filter_map(|(i, p)| if p.is_unused() { Some(i) } else { None })
+                .filter_map(|(i, p)| if p.is_out() { Some(i) } else { None })
                 .collect::<Vec<usize>>();
-            let pegs_onboard = self
+            let pegs_in = self
                 .board
                 .player_pegs(player)
                 .enumerate()
-                .filter_map(|(i, p)| if p.is_onboard() { Some(i) } else { None })
+                .filter_map(|(i, p)| if p.is_in() { Some(i) } else { None })
                 .collect::<Vec<usize>>();
             let pegs_home = self
                 .board
@@ -209,13 +219,13 @@ impl Game {
 
             let roll = roll_dice();
             println!("ROLL: {} rolls {}", player.name(), roll);
-            if roll == 6 && pegs_unused.len() > 0 {
-                // If 6 is rolled and the players has news e must insert
-                // MUST if no pegs on board
+            if roll == 6 && pegs_out.len() > 0 {
+                // If 6 is rolled AND no pegs in a new one MUST be inserted
+                // For now we just insert one whenever possible
                 let first_unused_peg = self
                     .board
                     .player_pegs(player)
-                    .position(|p| p.is_unused())
+                    .position(|p| p.is_out())
                     .unwrap();
                 self.board.insert_peg(player, first_unused_peg);
                 inserted = Some(first_unused_peg);
@@ -223,13 +233,15 @@ impl Game {
                 // The player MUST move the inserted that one
                 self.board.move_peg(player, inserted_peg, roll);
                 inserted = None;
-            } else if pegs_onboard.len() > 0 {
-                let peg_index = self
+            } else if pegs_in.len() > 0 {
+                // TODO: Select random peg to move
+                let in_pegs = self
                     .board
                     .player_pegs(player)
-                    .position(|p| p.is_onboard())
-                    .unwrap();
-                self.board.move_peg(player, peg_index, roll);
+                    .enumerate()
+                    .filter(|(_, p)| p.is_in())
+                    .collect::<Vec<(usize, &Peg)>>();
+                self.board.move_peg(player, in_pegs[0].0, roll);
             }
 
             if roll != 6 {
