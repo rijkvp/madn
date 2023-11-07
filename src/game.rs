@@ -8,22 +8,22 @@ pub const PLAYER_NAMES: &[&str] = &["Blue", "Yellow", "Green", "Red"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Peg {
-    Unused,
-    OnBoard(usize),
+    Out,
+    In(usize),
     Home(usize),
 }
 
 impl Peg {
     fn is_unused(&self) -> bool {
         match self {
-            Self::Unused => true,
+            Self::Out => true,
             _ => false,
         }
     }
 
     fn is_onboard(&self) -> bool {
         match self {
-            Self::OnBoard(_) => true,
+            Self::In(_) => true,
             _ => false,
         }
     }
@@ -70,29 +70,46 @@ impl Default for Board {
     fn default() -> Self {
         Self {
             board: [0u8; BOARD_SIZE],
-            pegs: [[Peg::Unused; PEG_COUNT]; PLAYER_COUNT],
+            pegs: [[Peg::Out; PEG_COUNT]; PLAYER_COUNT],
         }
     }
 }
 
 impl Board {
-    pub fn move_peg(&mut self, player: Player, peg: usize, amount: usize) {
-        let Peg::OnBoard(peg_pos) = self.pegs[player.index()][peg] else {
+    /// Moves the a peg of a player on the board
+    pub fn move_peg(&mut self, player: Player, peg: usize, moves: usize) {
+        let Peg::In(peg_pos) = self.pegs[player.index()][peg] else {
             panic!("cannot move peg that is not on the board");
         };
         self.board[peg_pos] = 0;
-        let dest = (peg_pos + amount) % BOARD_SIZE;
-        self.board[dest] = player.num();
-        self.pegs[player.index()][peg] = Peg::OnBoard(dest);
-        println!("MOVE: {} peg {}, {} places", player.name(), peg, amount);
+        let dest = (peg_pos + moves) % BOARD_SIZE;
+
+        self.place_peg(dest, player, peg);
+
+        println!("MOVE: {} peg {}, {} places", player.name(), peg, moves);
         // TODO: move in home
     }
 
+    /// Insert a new peg on the board
     pub fn insert_peg(&mut self, player: Player, peg: usize) {
-        let start_pos = player.start_pos();
-        self.board[start_pos] = player.num();
-        self.pegs[player.index()][peg] = Peg::OnBoard(start_pos);
         println!("INSERT: {}", player.name());
+        self.place_peg(player.start_pos(), player, peg);
+    }
+
+    /// Place a peg on the board, potentially slaying another peg
+    pub fn place_peg(&mut self, pos: usize, player: Player, peg: usize) {
+        let current = self.board[pos];
+        if current != 0 {
+            let player_idx = (current - 1) as usize;
+            println!("THROW OUT: {}", PLAYER_NAMES[player_idx]);
+            for peg in &mut self.pegs[player_idx] {
+                if *peg == Peg::In(pos) {
+                    *peg = Peg::Out;
+                }
+            }
+        }
+        self.board[pos] = player.num();
+        self.pegs[player.index()][peg] = Peg::In(pos);
     }
 
     pub fn cells(&self) -> std::slice::Iter<u8> {
@@ -101,6 +118,23 @@ impl Board {
 
     pub fn player_pegs(&self, player: Player) -> std::slice::Iter<Peg> {
         self.pegs[player.index()].iter()
+    }
+
+    pub fn stats(&self) -> String {
+        let mut str = String::new();
+        for player_idx in 0..PLAYER_COUNT {
+            str.push_str(PLAYER_NAMES[player_idx]);
+            str.push(' ');
+            for peg in self.pegs[player_idx] {
+                str.push(match peg {
+                    Peg::Out => 'O',
+                    Peg::In(_) => 'I',
+                    Peg::Home(_) => 'H',
+                });
+            }
+            str.push('\n');
+        }
+        str
     }
 }
 
@@ -128,7 +162,7 @@ impl Game {
         &self.board
     }
 
-    pub fn player(&self) -> Player {
+    pub fn current_player(&self) -> Player {
         self.current_player
     }
 
@@ -150,7 +184,7 @@ impl Game {
     }
 
     pub fn perform_turn(&mut self, player: Player) {
-        println!("{}s turn", player.name());
+        println!("\nTURN: {}", player.name());
 
         let mut inserted = None::<usize>;
         loop {
@@ -175,23 +209,26 @@ impl Game {
 
             let roll = roll_dice();
             println!("ROLL: {} rolls {}", player.name(), roll);
-            if let Some(inserted_peg) = inserted {
-                self.board.move_peg(player, inserted_peg, roll);
-                inserted = None;
-            } else if roll == 6 && pegs_unused.len() > 0 {
-                let peg_index = self
+            if roll == 6 && pegs_unused.len() > 0 {
+                // If 6 is rolled and the players has news e must insert
+                // MUST if no pegs on board
+                let first_unused_peg = self
                     .board
                     .player_pegs(player)
                     .position(|p| p.is_unused())
-                    .expect("there should be at least one unused peg");
-                self.board.insert_peg(player, peg_index);
-                inserted = Some(peg_index);
+                    .unwrap();
+                self.board.insert_peg(player, first_unused_peg);
+                inserted = Some(first_unused_peg);
+            } else if let Some(inserted_peg) = inserted {
+                // The player MUST move the inserted that one
+                self.board.move_peg(player, inserted_peg, roll);
+                inserted = None;
             } else if pegs_onboard.len() > 0 {
                 let peg_index = self
                     .board
                     .player_pegs(player)
                     .position(|p| p.is_onboard())
-                    .expect("there should be at least one peg on board");
+                    .unwrap();
                 self.board.move_peg(player, peg_index, roll);
             }
 

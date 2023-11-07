@@ -18,7 +18,7 @@
           cargoLock.lockFile = self + "/Cargo.lock";
         };
         devShells.default = mkShell rec {
-          nativeBuildInputs = [ rustc cargo cargo-flamegraph cargo-dist pkg-config cmake fontconfig ];
+          nativeBuildInputs = [ rustc cargo pkg-config cmake fontconfig ];
           buildInputs = [
             libGL
             libxkbcommon

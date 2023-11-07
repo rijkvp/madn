@@ -6,10 +6,12 @@ use notan::prelude::*;
 
 #[notan_main]
 fn main() -> Result<(), String> {
+    let win_config = WindowConfig::new().set_vsync(true);
     notan::init_with(State::new)
+        .add_config(win_config)
+        .add_config(DrawConfig)
         .draw(draw)
         .update(update)
-        .add_config(DrawConfig)
         .build()
 }
 
@@ -128,5 +130,9 @@ fn draw(gfx: &mut Graphics, state: &mut State) {
             .size(0.7 * CELL_SIZE)
             .color(Color::BLACK);
     }
+    draw.text(&state.font, &state.game.board().stats())
+        .position(0.0, 0.0)
+        .size(22.0)
+        .color(Color::BLACK);
     gfx.render(&draw);
 }
