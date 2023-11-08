@@ -38,6 +38,10 @@ fn update(app: &mut App, state: &mut State) {
         state.game.next_turn();
     } else if app.keyboard.is_down(KeyCode::Return) {
         state.game.next_turn();
+    } else if app.keyboard.was_pressed(KeyCode::R) {
+        for _ in 0..1000 {
+            state.game.next_turn();
+        }
     }
 }
 

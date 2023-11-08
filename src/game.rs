@@ -77,16 +77,23 @@ impl Board {
         let Peg::In(peg_pos) = self.pegs[player.index()][peg] else {
             panic!("cannot move peg that is not on the board");
         };
-        let dest = (peg_pos + moves) % BOARD_SIZE;
-        let home_pos = (player.index() * SIDE_SIZE + (BOARD_SIZE - 1)) % BOARD_SIZE;
-        let pos_in_round = (BOARD_SIZE + dest - home_pos) % BOARD_SIZE;
-        if pos_in_round > 30 {
-            // Move in HOME
-            println!("MOVE HOME: {} peg {}, {} places", player.name(), peg, moves);
+        let start_pos = player.index() * SIDE_SIZE;
+        let pos_in_round = (BOARD_SIZE + peg_pos - start_pos) % BOARD_SIZE + moves;
+        if pos_in_round >= BOARD_SIZE {
+            let home_dest = (pos_in_round - BOARD_SIZE).min(PEG_COUNT - 1);
+            if self.home[player.index()][home_dest] {
+                println!("PASS: home already occupied");
+            } else {
+                println!("MOVE HOME: {} peg {}, {} places", player.name(), peg, moves);
+                self.board[peg_pos] = 0; // Clear the previous position
+                self.home[player.index()][home_dest] = true;
+                self.pegs[player.index()][peg] = Peg::Home(home_dest);
+            }
         } else {
             // Normal move
             println!("MOVE: {} peg {}, {} places", player.name(), peg, moves);
             self.board[peg_pos] = 0; // Clear the previous position
+            let dest = (peg_pos + moves) % BOARD_SIZE;
             self.place_peg(dest, player, peg);
         }
     }
